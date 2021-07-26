@@ -45,4 +45,7 @@ def print_attendees(name: str):
         print(row.Member.name)
 
 
-add_attendee('test', 'A A Ron')
+# add_attendee('test', 'A A Ron')
+
+exist = session.query(session.query(Attendance).filter(Attendance.member_id == 123).exists()).scalar()
+print(exist)

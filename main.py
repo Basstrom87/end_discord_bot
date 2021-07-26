@@ -1,4 +1,3 @@
-import discord
 import tokens
 from discord.ext import commands
 from sqlalchemy import engine, create_engine
@@ -81,10 +80,15 @@ async def attend(ctx, name: str):
             member = Member(id=id, name=author)
             session.add(member)
 
-        attending = Attendance(member_id=id, event_id=event.id)
-        session.add(attending)
-        session.commit()
-        await ctx.send(f'Member {author} is now attending event {name}')
+        # Check to see if person already has marked their attendance
+        if session.query(session.query(Attendance).filter(Attendance.member_id == id).exists()).scalar():
+            await ctx.send('You have already submitted your attendance for this event, please check other events!')
+        else:
+            attending = Attendance(member_id=id, event_id=event.id)
+            session.add(attending)
+            session.commit()
+            await ctx.send(f'Member {author} is now attending event {name}')
+
     except Exception as e:
         await ctx.send('Could not complete your command')
         print(e)
@@ -97,10 +101,14 @@ async def list(ctx):
     '''
     try:
         events = session.query(Event).order_by(Event.date).all()
-        headers = ['Name', 'Date', 'Server']
-        rows = [[e.name, e.date, e.server] for e in events]
+        headers = ['Name', 'Date']
+        rows = [[e.name, e.date] for e in events]
         table = tabulate(rows, headers)
-        await ctx.send('```\n' + table + '```')
+        message = await ctx.send('```\n' + table + '```')
+        # await message.add_reaction('✅')
+        await message.add_reaction('\U00002705')
+        await message.add_reaction('\U0001F937')
+        await message.add_reaction('\U0000274C')
     except Exception as e:
         await ctx.send('Could not complete your command')
         print(e)
@@ -141,6 +149,16 @@ async def view(ctx, name: str):
     except Exception as e:
         await ctx.send('Could not complete your command')
         print(e)
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    print(f"{payload.user_id} pressed the {payload.emoji} button, RAW!")
+
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    print(f"{user} pressed the {reaction} button, CACHED!")
 
 
 if __name__ == '__main__':
