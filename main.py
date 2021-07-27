@@ -1,4 +1,18 @@
+"""
+TODO: Only allow one reaction,
+    Get list of members assigned to a channel
+    Message members when they join up to an event with their local time
+    Create time button to message members when the event is in their timezone
+    Send reminders 24 and 48 hours before an event if they haven't signed up
+    Get list of non-responders for an event
+    Create repeatability
+    Pretty it up
+
+    Future: See how big database can be before performance loss, consider changing to MySQL if this is an issue
+"""
+
 import tokens
+import discord
 from discord.ext import commands
 from sqlalchemy import engine, create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,7 +30,9 @@ if not engine.dialect.has_table(engine.connect(), 'event'):
 
 # Bot information
 description = 'Basstrom87s Dev Bot'
-bot = commands.Bot(command_prefix='?', description=description)
+intents = discord.Intents.default()
+intents.members = True
+bot = commands.Bot(intents=intents, command_prefix='?', description=description)
 token = tokens.bot_token
 
 
@@ -49,10 +65,18 @@ async def create(ctx, name: str, date: str, time: str='0:00am'):
     date_time = '{} {}'.format(date, time)
     try:
         event_date = datetime.strptime(date_time, '%d/%m/%Y %H:%M:%S')
-        event = Event(name=name, server=server, date=event_date)
-        session.add(event)
-        session.commit()
-        await ctx.send(f'Event {name} created successfully for {event.date}')
+        # Check if event exists, if not input the event into the database, id of the event linked to the message id
+        if session.query(session.query(Event).filter(Event.date == event_date).exists()).scalar():
+            await ctx.send(f"Event {name} Already Exists!")
+        else:
+            message = await ctx.send(f'Event {name} created successfully for {event_date}')
+            await message.add_reaction('\U00002705')  # Tick
+            await message.add_reaction('\U0001F937')  # Shrugging aka Maybe
+            await message.add_reaction('\U0000274C')  # Red cross, No
+            msg_id = message.id
+            event = Event(id=msg_id, name=name, server=server, date=event_date)
+            session.add(event)
+            session.commit()
     except Exception as e:
         await ctx.send('Could not complete your command')
         print(e)
@@ -95,7 +119,7 @@ async def attend(ctx, name: str):
 
 
 @bot.command()
-async def list(ctx):
+async def list_events(ctx):
     '''Displays the list of current events
         example: ?list
     '''
@@ -105,17 +129,13 @@ async def list(ctx):
         rows = [[e.name, e.date] for e in events]
         table = tabulate(rows, headers)
         message = await ctx.send('```\n' + table + '```')
-        # await message.add_reaction('✅')
-        await message.add_reaction('\U00002705')
-        await message.add_reaction('\U0001F937')
-        await message.add_reaction('\U0000274C')
     except Exception as e:
         await ctx.send('Could not complete your command')
         print(e)
 
 
 @bot.command()
-async def view(ctx, name: str):
+async def view_event(ctx, name: str):
     '''Displays information about a specific event
         example: ?view party
     '''
@@ -135,14 +155,15 @@ async def view(ctx, name: str):
             .filter(Member.id == Attendance.member_id)\
             .filter(Attendance.event_id == event.id)\
             .order_by(Member.name.asc())
+        print(attendees_raw.all())
+
         attendees = ""
-        for row in attendees_raw:
+        for row in attendees_raw.all():
             attendees += "\n" + row.Member.name
 
         # Put into a list
         info = [['Name', event.name],
                 ['Date', event.date],
-                ['Server', event.server],
                 ['Number Attending', attending],
                 ['Attendees', attendees]]
         await ctx.send('```\n' + tabulate(info) + '```')
@@ -151,14 +172,63 @@ async def view(ctx, name: str):
         print(e)
 
 
+def record_attendance(event_id: int, member: int, attendance: str) -> None:
+    """
+    event_id: The ID of the event, this is associated with the message id number
+    member: The ID of the member from discord
+    attendance: The attendance of the member, yes, maybe, no
+    return: None
+    TODO: Send message to member,
+        check if event_id exists to weed out reactions to other messages,
+        update if member changes mind
+    """
+    attending = Attendance(member_id=member, event_id=event_id, attendance=attendance)
+    session.add(attending)
+    session.commit()
+
+
 @bot.event
 async def on_raw_reaction_add(payload):
-    print(f"{payload.user_id} pressed the {payload.emoji} button, RAW!")
+    """
+    Get when a user presses a reaction button and send it to the database
+    """
+    # Get username without user code, convert to string and partition it out
+    # member_name_str = str(payload.member).partition("#")[0]
+    # print(payload.member.bot)
+    # Check to see if a real person is reacting to the message
+    if not payload.member.bot:
+        # Create member if they do not exist in our database
+        count = session.query(Member).filter(Member.id == payload.user_id).count()
+        if count < 1:
+            member = Member(id=payload.user_id, name=str(payload.member).partition("#")[0])
+            session.add(member)
+
+        attendance = ""
+        if payload.emoji.name == '✅':
+            attendance = "Yes"
+        elif payload.emoji.name == '🤷':
+            attendance = "Maybe"
+        elif payload.emoji.name == '❌':
+            attendance = "No"
+        # print(f"{member_name_str} has responded to the attendance with {attendance}")
+        record_attendance(payload.message_id, payload.user_id, attendance)
+        print("Record added")
 
 
-@bot.event
-async def on_reaction_add(reaction, user):
-    print(f"{user} pressed the {reaction} button, CACHED!")
+@bot.command(pass_context=True)
+async def members(ctx):
+    """
+    Get a list of all current members that are not bots
+    TODO: Sort out by certain tags
+    """
+    member_list = []
+    for member in ctx.guild.members:
+        if not member.bot:
+            member_list.append(member.name)
+        else:
+            pass
+
+    print(member_list)
 
 
 if __name__ == '__main__':

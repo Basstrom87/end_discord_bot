@@ -8,6 +8,6 @@ idna==3.2
 multidict==5.1.0
 SQLAlchemy==1.4.22
 tabulate==0.8.9
-tokens==0.0.3
 typing-extensions==3.10.0.0
 yarl==1.6.3
+tokens~=0.0.3

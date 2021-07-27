@@ -37,15 +37,16 @@ def add_attendee(name: str, attendee: str):
 
 def print_attendees(name: str):
     event = session.query(Event).filter(Event.name == name).first()
+    # print(event.id)
     # Number of people attending
     attending = session.query(Attendance).filter(Attendance.event_id == event.id).count()
-    attendees = session.query(Member, Attendance).filter(Member.id == Attendance.member_id).filter(Attendance.event_id == event.id)
-    # print(attendees)
+    attendees = session.query(Attendance.member_id).join(Member, Member.id == Attendance.member_id)
+    print(attendees)
     for row in attendees:
-        print(row.Member.name)
+        print(row.member_id)
 
 
 # add_attendee('test', 'A A Ron')
-
-exist = session.query(session.query(Attendance).filter(Attendance.member_id == 123).exists()).scalar()
-print(exist)
+print_attendees("test_event3")
+# exist = session.query(session.query(Attendance).filter(Attendance.member_id == 123).exists()).scalar()
+# print(exist)
