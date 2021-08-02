@@ -50,3 +50,7 @@ def print_attendees(name: str):
 print_attendees("test_event3")
 # exist = session.query(session.query(Attendance).filter(Attendance.member_id == 123).exists()).scalar()
 # print(exist)
+
+# Get discord channel
+channel = discord.utils.get(ctx.guild.channels, name=given_name)
+channel_id = channel.id
