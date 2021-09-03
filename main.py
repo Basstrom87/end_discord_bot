@@ -1,11 +1,12 @@
 """
 TODO: Only allow one reaction,
-    Message members when they join up to an event with their local time
-    Create time button to message members when the event is in their timezone
+    Message members when they join up to an event
+    Create time button to message members when the event is in their timezone - Need to get people to do this manually
     Send reminders 24 and 48 hours before an event if they haven't signed up
     Get list of non-responders for an event
     Create repeatability
     Pretty it up
+    Remove event once time has elapsed
 
     Future: See how big database can be before performance loss, consider changing to MySQL if this is an issue
 """
@@ -41,9 +42,18 @@ main_role = "admin"
 # Change this to be the TC Channel ID
 tc_channel_id = 871586996135530527
 
+# Globally accessible Event List (just event id's)
+global event_id_list
+event_id_list = []
+
 
 @bot.event
 async def on_ready():
+    # Get upcoming tc's id numbers and populate event_id_list
+    event_ids = session.query(Event.id).filter(Event.date >= datetime.now()).all()
+    event_id_list.extend([event.id for event in event_ids])
+    print(event_id_list)
+
     print(bot.user.id)
     print(bot.user.name)
     print('---------------')
@@ -96,6 +106,8 @@ async def create(ctx, name: str, date: str, time: str = '0:00am'):
             event = Event(id=msg_id, name=name, server=server, date=event_date)
             session.add(event)
             session.commit()
+            event_id_list.append(msg_id)
+            print(event_id_list)
     except Exception as err:
         await ctx.send('Could not complete your command')
         print(err)
@@ -139,11 +151,11 @@ async def attend(ctx, name: str):
 
 @bot.command()
 async def list_events(ctx):
-    """Displays the list of current events
-        example: ?list
+    """Displays the list of upcoming events
+        example: ?list_events
     """
     try:
-        events = session.query(Event).order_by(Event.date).all()
+        events = session.query(Event).order_by(Event.date).filter(Event.date >= datetime.now()).all()
         headers = ['Name', 'Date']
         rows = [[event.name, event.date] for event in events]
         table = tabulate(rows, headers)
@@ -159,7 +171,7 @@ async def view_event(ctx, name: str):
         example: ?view party
     """
     try:
-        event = session.query(Event).filter(Event.name == name).first()
+        event = session.query(Event).filter(Event.name == name, Event.date >= datetime.now())
 
         # Verify This event exists
         if not event:
@@ -187,23 +199,8 @@ async def view_event(ctx, name: str):
                 ['Attendees', attendees]]
         await ctx.send('```\n' + tabulate(info) + '```')
     except Exception as err:
-        await ctx.send('Could not complete your command')
+        await ctx.send('Event does not currently exist! Check details!')
         print(err)
-
-
-def record_attendance(event_id: int, member: int, attendance: str) -> None:
-    """
-    event_id: The ID of the event, this is associated with the message id number
-    member: The ID of the member from discord
-    attendance: The attendance of the member, yes, maybe, no
-    return: None
-    TODO: Send message to member,
-        check if event_id exists to weed out reactions to other messages,
-        update if member changes mind
-    """
-    attending = Attendance(member_id=member, event_id=event_id, attendance=attendance)
-    session.add(attending)
-    session.commit()
 
 
 @bot.event
@@ -211,17 +208,18 @@ async def on_raw_reaction_add(payload):
     """
     Get when a user presses a reaction button and send it to the database
     """
-    # Get username without user code, convert to string and partition it out
-    # member_name_str = str(payload.member).partition("#")[0]
-    # print(payload.member.bot)
     # Check to see if a real person is reacting to the message
     if not payload.member.bot:
+        # Get username without user code, convert to string and partition it out
+        member = Member(id=payload.user_id, name=str(payload.member).partition("#")[0])
+        # Get event name
+        event_name = ''.join(session.query(Event.name).filter(Event.id == payload.message_id).first())
+        print(event_name)
         # Create member if they do not exist in our database
         count = session.query(Member).filter(Member.id == payload.user_id).count()
         if count < 1:
-            member = Member(id=payload.user_id, name=str(payload.member).partition("#")[0])
             session.add(member)
-
+        # Get attendance reaction
         attendance = ""
         if payload.emoji.name == '✅':
             attendance = "Yes"
@@ -229,9 +227,18 @@ async def on_raw_reaction_add(payload):
             attendance = "Maybe"
         elif payload.emoji.name == '❌':
             attendance = "No"
-        # print(f"{member_name_str} has responded to the attendance with {attendance}")
-        record_attendance(payload.message_id, payload.user_id, attendance)
-        print("Record added")
+
+        # Add to database and message member
+        if payload.message_id in event_id_list:
+            attending = Attendance(member_id=payload.user_id, event_id=payload.message_id, attendance=attendance)
+            session.add(attending)
+            session.commit()
+
+            await payload.member.send(f"Thanks {member.name} for letting us know your availability for {event_name}!\n "
+                                      "Please remember to update if anything changes. \n"
+                                      "\t\t\t\t\tCheers, END Leadership")
+        else:
+            print("Reaction to the wrong message!")
 
 
 @bot.command(pass_context=True)

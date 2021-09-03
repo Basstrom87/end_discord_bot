@@ -9,6 +9,9 @@ engine = create_engine('sqlite:///event-bot.db', echo=False)
 Session = sessionmaker(bind=engine)
 session = Session()
 
+global event_list
+
+event_list = []
 
 def add_attendee(name: str, attendee: str):
     author = name
@@ -46,11 +49,22 @@ def print_attendees(name: str):
         print(row.member_id)
 
 
+def record_attendance(event_id: int, member: int, attendance: str) -> None:
+    """
+    event_id: The ID of the event, this is associated with the message id number
+    member: The ID of the member from discord
+    attendance: The attendance of the member, yes, maybe, no
+    return: None
+    TODO: Send message to member,
+        check if event_id exists to weed out reactions to other messages,
+        update if member changes mind
+    """
+    attending = Attendance(member_id=member, event_id=event_id, attendance=attendance)
+    session.add(attending)
+    session.commit()
+
 # add_attendee('test', 'A A Ron')
 print_attendees("test_event3")
 # exist = session.query(session.query(Attendance).filter(Attendance.member_id == 123).exists()).scalar()
 # print(exist)
 
-# Get discord channel
-channel = discord.utils.get(ctx.guild.channels, name=given_name)
-channel_id = channel.id
